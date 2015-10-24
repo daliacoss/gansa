@@ -1,0 +1,9 @@
+dist
+*.egg-info
+build
+record.txt
+venv
+
+ignore
+*.sublime-*
+
