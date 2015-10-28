@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import os, imp, jinja2, markdown, yaml
+import os, imp, collections
+import jinja2, markdown, yaml
 from markdown.extensions.meta import MetaExtension
 
 TMP_TEMPLATE = """
@@ -11,13 +12,40 @@ TMP_TEMPLATE = """
 {{% endblock %}}
 """
 
+def deep_update(dict1, dict2):
+	for k, v in dict2.items():
+		if isinstance(v, collections.Mapping):
+			r = deep_update(dict1.get(k, {}), v)
+			dict1[k] = r
+		else:
+			dict1[k] = v
+	return dict1
+
 class Site(object):
+
+	default_settings = {
+		"environment": {
+			"views": "views.yaml",
+			"pages": "pages",
+			"templates": "templates",
+			"assets": "assets"
+		},
+		"default_block": "content"
+	}
 
 	def __init__(self, environment="."):
 
 		self.environment = os.path.abspath(environment)
+		self.settings = dict(self.default_settings)
+		try:
+			with open(os.path.join(self.environment, "settings.yaml")) as settings_file:
+				settings = yaml.load(settings_file)
+				deep_update(self.settings, settings)
+		except IOError:
+			pass
+
 		self.templates = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.join(self.environment, "templates")))
-		with open(os.path.join(self.environment, "views.yaml")) as vstream:
+		with open(os.path.join(self.environment, self.settings["environment"]["views"])) as vstream:
 			self.views = yaml.load(vstream)
 		self.db = {}
 
@@ -85,30 +113,35 @@ class Site(object):
 			if view.get("pages"):
 				new_out = os.path.join(out, view["route"])
 				self.build(out=new_out, views=view["pages"])
-			else:
-				context = dict(route=view["full_route"], **view.get("context", {}))
-				page_fname = os.path.join(
-					self.environment,
-					"pages",
-					"".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"
-				)
+				continue
 
-				with open(os.path.join(out, view["route"]), "w") as out_file:
-					try:
-						with open(page_fname, "r") as page_file:
-							html = md.convert(page_file.read())
-							meta = {}
-							for k, v in md.Meta.items():
-								if len(v) == 1:
-									meta[k] = v[0]
-								else:
-									meta[k] = v
-							context.update(meta)
+			context = dict(route=view["full_route"], db=self.db, **view.get("context", {}))
+			page_fname = os.path.join(
+				self.environment,
+				self.settings["environment"]["pages"],
+				"".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"
+			)
 
-							with open(os.path.join(self.environment, "templates", "_tmp.html"), "w") as tmp:
-								tmp.write(TMP_TEMPLATE.format(view["template"], meta.get("__block__", "content"), html))
-							template = self.templates.get_template("_tmp.html")
-							out_file.write(template.render(**context))
-					except IOError:
-						template = self.templates.get_template(view["template"])
+			with open(os.path.join(out, view["route"]), "w") as out_file:
+				try:
+					with open(page_fname, "r") as page_file:
+						html = md.convert(page_file.read())
+						meta = {}
+						for k, v in md.Meta.items():
+							if len(v) == 1:
+								meta[k] = v[0]
+							else:
+								meta[k] = v
+						context.update(meta)
+
+						with open(os.path.join(self.environment, "templates", "_tmp.html"), "w") as tmp:
+							tmp.write(TMP_TEMPLATE.format(
+								view["template"],
+								meta.get("__block__", self.settings["default_block"]),
+								html
+							))
+						template = self.templates.get_template("_tmp.html")
 						out_file.write(template.render(**context))
+				except IOError:
+					template = self.templates.get_template(view["template"])
+					out_file.write(template.render(**context))
