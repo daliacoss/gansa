@@ -4,7 +4,6 @@ from __future__ import print_function
 import os, sys, argparse
 import froggit
 
-
 class CommandLineInterface(object):
 
 	def __init__(self):
@@ -58,7 +57,7 @@ def build(**args):
 
 @cli.register_command("init", [])
 def init(**args):
-	pass
+	froggit.new_environment()
 
 def main():
 
