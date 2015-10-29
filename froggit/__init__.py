@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import os, imp, collections
+import os, imp, collections, shutil
 import jinja2, markdown, yaml
 from markdown.extensions.meta import MetaExtension
 
@@ -100,9 +100,15 @@ class Site(object):
 	def build(self, out="", views=None):
 
 		out = out or os.path.join(self.environment, "distribute")
+		if os.path.abspath(out) == os.path.abspath(self.environment):
+			raise OSError("Cannot build site in source directory")
+
 		try:
 			os.listdir(out)
 		except OSError:
+			os.mkdir(out)
+		else:
+			shutil.rmtree(out)
 			os.mkdir(out)
 
 		views = views or self.views
@@ -119,7 +125,7 @@ class Site(object):
 			page_fname = os.path.join(
 				self.environment,
 				self.settings["environment"]["pages"],
-				"".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"
+				view.get("page", "".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md")
 			)
 
 			with open(os.path.join(out, view["route"]), "w") as out_file:
@@ -145,3 +151,16 @@ class Site(object):
 				except IOError:
 					template = self.templates.get_template(view["template"])
 					out_file.write(template.render(**context))
+
+		#skip asset copying if this is not the top level of the recursive build
+		if views != self.views:
+			return
+		try:
+			assets_folder = os.path.join(self.environment, self.settings["environment"]["assets"])
+			for f in os.listdir(assets_folder):
+				if os.path.isdir(os.path.join(assets_folder, f)):
+					shutil.copytree(os.path.join(assets_folder, f), os.path.join(out, f))
+				else:
+					shutil.copy(os.path.join(assets_folder, f), out)
+		except OSError:
+			pass
