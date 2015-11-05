@@ -3,6 +3,7 @@
 from __future__ import print_function
 import os, imp, collections, shutil
 import jinja2, markdown, yaml
+from . import six
 from markdown.extensions.meta import MetaExtension
 
 TMP_TEMPLATE = """
@@ -63,8 +64,8 @@ class Site(object):
 		views = views or self.views
 
 		for view in views:
-			if view.get("pages"):
-				routeList += self._routes(views=view["pages"])
+			if view.get("subviews"):
+				routeList += self._routes(views=view["subviews"])
 			else:
 				routeList.append(view["full_route"])
 
@@ -77,8 +78,8 @@ class Site(object):
 
 		for view in views:
 			view["full_route"] = route_prefix + view["route"]
-			if view.get("pages"):
-				self.set_full_routes(views=view["pages"], route_prefix = view["full_route"] + "/")
+			if view.get("subviews"):
+				self.set_full_routes(views=view["subviews"], route_prefix = view["full_route"] + "/")
 
 	def set_templates(self, views=None, template=""):
 		"""
@@ -94,8 +95,8 @@ class Site(object):
 			if not view.get("template"):
 				view["template"] = template
 
-			if view.get("pages"):
-				self.set_templates(views=view["pages"], template=view["template"])
+			if view.get("subviews"):
+				self.set_templates(views=view["subviews"], template=view["template"])
 
 	def build(self, out="", views=None):
 
@@ -116,38 +117,57 @@ class Site(object):
 		md = markdown.Markdown(extensions=[MetaExtension()])
 
 		for view in views:
-			if view.get("pages"):
+			if view.get("subviews"):
 				new_out = os.path.join(out, view["route"])
-				self.build(out=new_out, views=view["pages"])
+				self.build(out=new_out, views=view["subviews"])
 				continue
 
 			context = dict(route=view["full_route"], db=self.db, **view.get("context", {}))
-			page_fname = os.path.join(
+
+			page_fnames = view.get("pages", ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"])
+
+			if not isinstance(page_fnames, collections.Iterable) or isinstance(page_fnames, six.string_types):
+				page_fnames = [page_fnames]
+
+			page_fnames = [os.path.join(
 				self.environment,
 				self.settings["environment"]["pages"],
-				view.get("page", "".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md")
-			)
+				fname
+			) for fname in page_fnames]
 
 			with open(os.path.join(out, view["route"]), "w") as out_file:
 				try:
-					with open(page_fname, "r") as page_file:
-						html = md.convert(page_file.read())
-						meta = {}
-						for k, v in md.Meta.items():
-							if len(v) == 1:
-								meta[k] = v[0]
-							else:
-								meta[k] = v
-						context.update(meta)
+					blocks = {}
+					tmp_template = "{{% extends '{0}' %}}".format(view["template"])
 
-						with open(os.path.join(self.environment, "templates", "_tmp.html"), "w") as tmp:
-							tmp.write(TMP_TEMPLATE.format(
-								view["template"],
-								meta.get("__block__", self.settings["default_block"]),
-								html
-							))
-						template = self.templates.get_template("_tmp.html")
-						out_file.write(template.render(**context))
+					for page_fname in page_fnames:
+						with open(page_fname, "r") as page_file:
+							html = md.convert(page_file.read())
+							meta = {}
+							special = {}
+
+							for k, v in md.Meta.items():
+								# double-underscore vars are special vars used by froggit
+								if k == "__block__":
+									d = special
+								else:
+									d = meta
+
+								if len(v) == 1:
+									d[k] = v[0]
+								else:
+									d[k] = v
+
+							context.update(meta)
+
+							block_name = special.get("__block__", self.settings["default_block"])
+							blocks[block_name] = html
+							tmp_template += "{{% block {0}%}}{1}{{% endblock %}}".format(block_name, html)
+
+					with open(os.path.join(self.environment, "templates", "_tmp.html"), "w") as tmp:
+						tmp.write(tmp_template)
+					template = self.templates.get_template("_tmp.html")
+					out_file.write(template.render(**context))
 				except IOError:
 					template = self.templates.get_template(view["template"])
 					out_file.write(template.render(**context))
