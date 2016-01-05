@@ -52,12 +52,13 @@ cli = CommandLineInterface()
 	})
 ])
 def build(**args):
-	site = froggit.Site()
+	site = froggit.Site(environment=".")
 	site.build(out=args["out"])
 
 @cli.register_command("init", [])
 def init(**args):
-	froggit.new_environment()
+	site = froggit.Site(environment=".", load=False)
+	site.init_environment()
 
 def main():
 
