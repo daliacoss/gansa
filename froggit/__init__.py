@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import os, imp, collections, shutil, csv
+import os, imp, collections, shutil, csv, functools
 import jinja2, markdown, yaml
 from . import six
 from markdown.extensions.meta import MetaExtension
@@ -24,6 +24,12 @@ def _deep_update(dict1, dict2):
 		else:
 			dict1[k] = v
 	return dict1
+
+def _tonumber(s):
+	try:
+		return int(s)
+	except ValueError:
+		return float(s)
 
 class Site(object):
 
@@ -86,6 +92,21 @@ class Site(object):
 						self.db[table_name] = [row for row in csv.reader(stream)]
 					else:
 						raise ValueError("{0} is not a recognized csv storage format".format(store_csv_as))
+
+					if self.settings["database"].get("convert_numbers", True):
+						for row in self.db[table_name]:
+							if store_csv_as == "dict":
+								for k, v in row.items():
+									try:
+										row[k] = _tonumber(v)
+									except:
+										pass
+							if store_csv_as == "array":
+								for i, v in enumerate(row):
+									try:
+										row[i] = _tonumber(v)
+									except:
+										pass
 
 	def load_templates(self):
 
@@ -190,7 +211,6 @@ class Site(object):
 		"""set full routes for each view"""
 
 		views = views or self.views
-		# print(self.views)
 
 		for view in views:
 			view["full_route"] = route_prefix + view["route"]
@@ -258,7 +278,7 @@ class Site(object):
 			#else, build the page for this view
 
 			context = dict(route=view["full_route"], **view.get("context", {}))
-			context["query"] = self.query_db()
+			context["query"] = self.query_db(view.get("query"))
 
 			page_fnames = view.get("pages", ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"])
 
@@ -270,7 +290,6 @@ class Site(object):
 				self.settings["environment"]["pages"],
 				fname
 			) for fname in page_fnames]
-
 
 			with open(os.path.join(out, view["route"]), "w") as out_file:
 				try:
@@ -346,5 +365,45 @@ class Site(object):
 	
 	def query_csv(self, query=None):
 		
+
 		if not query:
 			return self.db
+
+		table = self.db.get(query.get("table"))
+		if not table:
+			raise KeyError("table {0} not found in database".format(repr(query.get("table"))))
+
+		copy = list(table)
+
+		if query.get("filter"):
+			if not isinstance(query["filter"], list):
+				query["filter"] = [query["filter"]]
+
+			conditions = [eval("lambda row: " + l, {}) for l in query["filter"]]
+
+			def filter_key(item):
+				for condition in conditions:
+					if not condition(item):
+						return False
+
+				return True
+
+			copy = filter(filter_key, copy)
+
+		if query.get("order"):
+			if not isinstance(query["order"], list):
+				query["order"] = [query["order"]]
+
+			order = [k.split(" ") for k in query["order"]]
+
+			for i, key in enumerate(order):
+				if key[-1] in {"ascending", "descending"}:
+					order[i] = (" ".join(key[:-1]), key[-1])
+				else:
+					order[i] = (" ".join(key), "ascending")
+
+			for k in reversed(order):
+				copy.sort(key = (lambda item: item[k[0]]), reverse=(k[1]=="descending"))
+				# print(copy)
+
+		return copy
