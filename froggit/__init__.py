@@ -13,6 +13,9 @@ TMP_TEMPLATE = """
 {{% endblock %}}
 """
 
+#TODO: add mongodb, couchdb
+SUPPORTED_DB_ENGINES = {"yaml", "sqlite", "postgresql", "mysql", "csv"}
+
 def _deep_update(dict1, dict2):
 	for k, v in dict2.items():
 		if isinstance(v, collections.Mapping):
@@ -63,16 +66,30 @@ class Site(object):
 		if not db_engine:
 			return
 
-		if db_engine in ["yaml", "csv"]:
+		if db_engine == "yaml":
 			with open(os.path.join(self.environment_src, self.settings["environment"]["database"])) as stream:
-				if db_engine == "yaml":
-					self.db = yaml.load(stream) or {}
-				else:
-					self.db = csv.reader(stream)
+				self.db = yaml.load(stream) or {}
+		elif db_engine == "csv":
+			db_fnames = self.settings["environment"]["database"]
+			if not isinstance(db_fnames, list):
+				db_fnames = [db_fnames]
+
+			store_csv_as = self.settings["database"].get("store_csv_as", "array")
+			self.db = {}
+
+			for fname in db_fnames:
+				with open(os.path.join(self.environment_src, fname)) as stream:
+					table_name = ".".join(fname.split(".")[:-1])
+					if store_csv_as == "dict":
+						self.db[table_name] = [row for row in csv.DictReader(stream)]
+					elif store_csv_as == "array":
+						self.db[table_name] = [row for row in csv.reader(stream)]
+					else:
+						raise ValueError("{0} is not a recognized csv storage format".format(store_csv_as))
 
 	def load_templates(self):
 
-		template_loader = jinja2.FileSystemLoader(os.path.join(self.environment, self.settings["environment"]["templates"]))
+		template_loader = jinja2.FileSystemLoader(os.path.join(self.environment_src, self.settings["environment"]["templates"]))
 		self.templates = jinja2.Environment(cache_size=0, loader=template_loader)
 
 	def load_views(self):
@@ -99,13 +116,27 @@ class Site(object):
 		if not db:
 			return
 
+		if isinstance(db, list):
+			fname = db[0]
+		else:
+			fname = db
+
 		# attempt to infer db engine from file name, if one is not specified
-		self.settings["database"]["engine"] = self.settings["database"].get("engine") or {
+		engine = self.settings["database"].get("engine") or {
 			"yaml": "yaml",
 			"csv": "csv",
 			"sqlite": "sqlite",
 			"db": "sqlite"
-		}.get(db.split(".")[-1])
+		}.get(fname.split(".")[-1])
+
+		if not engine:
+			raise ValueError("could not infer database engine")
+		elif engine not in SUPPORTED_DB_ENGINES:
+			raise ValueError("{0} is not a supported database engine".format(engine))
+		elif isinstance(db, list) and engine != "csv":
+			raise ValueError("{0} does not support multiple database files".format(engine))
+
+		self.settings["database"]["engine"] = engine
 
 	def init_environment(self):
 
@@ -134,6 +165,10 @@ class Site(object):
 		return os.path.join(self.environment, "src")
 
 	@property
+	def environment_dist(self):
+		return os.path.join(self.environment, "dist")
+
+	@property
 	def routes(self):
 		return self._routes()
 
@@ -155,12 +190,14 @@ class Site(object):
 		"""set full routes for each view"""
 
 		views = views or self.views
-		print(self.views)
+		# print(self.views)
 
 		for view in views:
 			view["full_route"] = route_prefix + view["route"]
 			if view.get("subviews"):
 				self.set_full_routes(views=view["subviews"], route_prefix = view["full_route"] + "/")
+			elif not view["route"]:
+				raise ValueError("view route must not be blank unless view has subviews")
 
 	def set_templates(self, views=None, template=""):
 		"""
@@ -181,19 +218,18 @@ class Site(object):
 
 	def build(self, out="", views=None):
 
-		out = out or os.path.join(self.environment, "distribute")
-		if os.path.abspath(out) == os.path.abspath(self.environment):
+		out = out or self.environment_dist
+		if os.path.abspath(self.environment_src) in os.path.abspath(out):
 			raise OSError("Cannot build site in source directory")
 
-		try:
-			os.listdir(out)
-		except OSError:
-			os.mkdir(out)
-		else:
-			shutil.rmtree(out)
-			os.mkdir(out)
-
 		views = views or self.views
+
+		if os.path.exists(out):
+			if views == self.views:
+				shutil.rmtree(out)
+				os.mkdir(out)
+		else:
+			os.mkdir(out)
 
 		md = markdown.Markdown(extensions=[MetaExtension()])
 
@@ -210,13 +246,19 @@ class Site(object):
 				print("Could not copy assets")
 		tmp_fname  = os.path.join(self.environment_src, "templates", "_tmp.html")
 
+		#create the html pages
 		for view in views:
+
+			#if there are subviews, we should build those instead
 			if view.get("subviews"):
 				new_out = os.path.join(out, view["route"])
 				self.build(out=new_out, views=view["subviews"])
 				continue
 
-			context = dict(route=view["full_route"], db=self.db, **view.get("context", {}))
+			#else, build the page for this view
+
+			context = dict(route=view["full_route"], **view.get("context", {}))
+			context["query"] = self.query_db()
 
 			page_fnames = view.get("pages", ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"])
 
@@ -224,7 +266,7 @@ class Site(object):
 				page_fnames = [page_fnames]
 
 			page_fnames = [os.path.join(
-				self.environment,
+				self.environment_src,
 				self.settings["environment"]["pages"],
 				fname
 			) for fname in page_fnames]
@@ -248,6 +290,8 @@ class Site(object):
 								else:
 									d = meta
 
+								# v will always be a list, which is probably not what users want
+								# if only one item is specified
 								if len(v) == 1:
 									d[k] = v[0]
 								else:
@@ -268,8 +312,39 @@ class Site(object):
 					template = self.templates.get_template(view["template"])
 					out_file.write(template.render(**context).encode('utf8'))
 
-				if views == self.views:
-					try:
-						os.remove(tmp_fname)
-					except OSError:
-						pass
+		if views == self.views:
+			try:
+				os.remove(tmp_fname)
+			except OSError:
+				pass
+
+	def query_db(self, query=None):
+
+		method = {
+			"yaml": self.query_yaml,
+			"sqlite": self.query_sqlite,
+			"postgresql": self.query_postgresql,
+			"mysql": self.query_mysql,
+			"csv": self.query_csv
+		}[self.settings["database"]["engine"]]
+
+		return method(query)
+
+	def query_yaml(self, query=None):
+
+		if not query:
+			return self.db
+	
+	def query_sqlite(self, query=None):
+		pass
+	
+	def query_postgresql(self, query=None):
+		pass
+	
+	def query_mysql(self, query=None):
+		pass
+	
+	def query_csv(self, query=None):
+		
+		if not query:
+			return self.db
