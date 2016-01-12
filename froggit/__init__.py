@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import os, imp, collections, shutil, csv, functools
-import jinja2, markdown, yaml
+import os, collections, shutil, csv, functools, imp
+# from importlib import import_module
+import jinja2, markdown, yaml, sqlalchemy
 from . import six
 from markdown.extensions.meta import MetaExtension
 
@@ -280,6 +281,8 @@ class Site(object):
 			context = dict(route=view["full_route"], **view.get("context", {}))
 			context["query"] = self.query_db(view.get("query"))
 
+			#determine the markdown pages to use for this view
+
 			page_fnames = view.get("pages", ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"])
 
 			if not isinstance(page_fnames, collections.Iterable) or isinstance(page_fnames, six.string_types):
@@ -290,6 +293,27 @@ class Site(object):
 				self.settings["environment"]["pages"],
 				fname
 			) for fname in page_fnames]
+
+			#load the context processor
+			#syntax: "module.submodule:callable"
+			context_processor_name = view.get("context_processor")
+			if context_processor_name:
+				try:
+					module_name, variable_name = context_processor_name.split(":")
+				except ValueError:
+					raise ValueError("incorrect syntax for context_processor value")
+
+				# module = import_module(module_name)
+				module = imp.load_source("context_processor", os.path.join(self.environment_src, module_name))
+				variable_name_list = variable_name.split(".")
+				o = module
+
+				for v in variable_name_list:
+					o = getattr(o, v)
+
+				context_processor = o
+			else:
+				context_processor = None
 
 			with open(os.path.join(out, view["route"]), "w") as out_file:
 				try:
@@ -322,11 +346,15 @@ class Site(object):
 							blocks[block_name] = html
 							tmp_template += "{{% block {0}%}}{1}{{% endblock %}}".format(block_name, html)
 
+					if context_processor:
+						context = context_processor(context, dict(view))
+
 					with open(tmp_fname, "w") as tmp:
 						tmp.write(tmp_template)
 
 					template = self.templates.get_template("_tmp.html")
 					out_file.write(template.render(**context))
+				# if no markdown page was found, just write context variables to the template
 				except OSError:
 					template = self.templates.get_template(view["template"])
 					out_file.write(template.render(**context).encode('utf8'))
@@ -353,6 +381,10 @@ class Site(object):
 
 		if not query:
 			return self.db
+
+		condition = eval("lambda db: " + query, {})
+
+		return condition(self.db)
 	
 	def query_sqlite(self, query=None):
 		pass
