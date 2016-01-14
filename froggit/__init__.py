@@ -62,7 +62,9 @@ class Site(object):
 			# "database": "db.yaml"
 			"user": "user.yaml"
 		},
-		"default_block": "content"
+		"templates": {
+			"default_block": "content"
+		}
 	}
 
 	default_user_settings = {
@@ -132,13 +134,23 @@ class Site(object):
 									except:
 										pass
 		elif db_engine in ["sqlite", "postgresql", "mysql"]:
-			self.db_engine = sqlalchemy.create_engine(self.user_settings["database"]["uri"])
+			if db_engine == "sqlite":
+				uri = self.user_settings["database"]["uri"]
+				p = uri.split("sqlite:///")[1]
+
+				if p and not os.path.isabs(p):
+					uri = "sqlite:///" + os.path.join(self.environment_src, p)
+				self.db_engine = sqlalchemy.create_engine(uri)
+
+			else:
+				self.db_engine = sqlalchemy.create_engine(self.user_settings["database"]["uri"])
+
 			self.db = sqlalchemy.orm.sessionmaker(bind=self.db_engine)()
 
 	def load_templates(self):
 
 		template_loader = jinja2.FileSystemLoader(os.path.join(self.environment_src, self.settings["environment"]["templates"]))
-		self.templates = jinja2.Environment(cache_size=0, loader=template_loader)
+		self.templates = jinja2.Environment(cache_size=0, loader=template_loader, extensions=['pyjade.ext.jinja.PyJadeExtension'])
 
 	def load_views(self):
 
@@ -177,13 +189,23 @@ class Site(object):
 		else:
 			fname = db
 
+
 		# attempt to infer db engine from file name, if one is not specified
-		engine = self.user_settings["database"].get("engine") or {
-			"yaml": "yaml",
-			"csv": "csv",
-			"sqlite": "sqlite",
-			"db": "sqlite"
-		}.get(fname.split(".")[-1])
+
+		engine = self.user_settings["database"].get("engine")
+
+		if not engine:
+			for pair in [("sqlite://","sqlite"), ("postgresql://","postgresql"), ("mysql://","mysql")]:
+				if fname.startswith(pair[0]):
+					engine = pair[1]
+					break
+			else:
+				engine = {
+					"yaml": "yaml",
+					"csv": "csv",
+					"sqlite": "sqlite",
+					"db": "sqlite"
+				}.get(fname.split(".")[-1])
 
 		if not engine:
 			raise ValueError("could not infer database engine")
@@ -384,7 +406,7 @@ class Site(object):
 
 							context.update(meta)
 
-							block_name = special.get("__block__", self.settings["default_block"])
+							block_name = special.get("__block__", self.settings["templates"]["default_block"])
 							blocks[block_name] = html
 							tmp_template += "{{% block {0}%}}{1}{{% endblock %}}".format(block_name, html)
 
