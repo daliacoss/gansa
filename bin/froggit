@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import os, sys, argparse
+import os, sys, argparse, traceback
 import froggit
 
 class CommandLineInterface(object):
@@ -33,6 +33,7 @@ class CommandLineInterface(object):
 					self.parser.add_argument(*argument[0], **argument[1])
 
 				args = self.parser.parse_args(argv[2:])
+				self.args = args.__dict__
 
 				return method(**args.__dict__)
 
@@ -49,22 +50,44 @@ cli = CommandLineInterface()
 		"type": str,
 		"default": "distribute",
 		"help": "output directory name"
+	}),
+	(("-v", "--verbose"), {
+		"action": "store_true",
+		"default": False,
+		"help": "print verbose error messages"
 	})
 ])
 def build(**args):
 	site = froggit.Site(environment=".")
 	site.build(out=args["out"])
 
-@cli.register_command("init", [])
+@cli.register_command("init", [
+	(("-v", "--verbose"), {
+		"action": "store_true",
+		"default": False,
+		"help": "print verbose error messages"
+	})
+])
 def init(**args):
 	site = froggit.Site(environment=".", load=False)
 	site.init_environment()
 
+# @cli.register_command("", [])
+
 def main():
 
-	r = cli(sys.argv)
-	if r:
-		sys.exit(r)
+	try:
+		r = cli(sys.argv)
+		if r:
+			sys.exit(r)
+
+	except Exception as e:
+
+		if cli.args["verbose"]:
+			sys.exit(traceback.format_exc())
+		else:
+			message = "{0}: {1}".format(type(e).__name__, sys.exc_info()[1])
+			sys.exit(message)
 
 if __name__ == "__main__":
 	main()

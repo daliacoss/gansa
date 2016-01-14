@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import os, collections, shutil, csv, functools, imp
-# from importlib import import_module
-import jinja2, markdown, yaml, sqlalchemy
+import sys, os, collections, shutil, csv, functools, imp, importlib
+import jinja2, markdown, yaml, sqlalchemy, sqlalchemy.orm
 from . import six
 from markdown.extensions.meta import MetaExtension
 
@@ -32,56 +31,80 @@ def _tonumber(s):
 	except ValueError:
 		return float(s)
 
+def _collection(item):
+	if not isinstance(item, collections.Iterable) or isinstance(item, six.string_types):
+		item = [item]
+	return item
+
+def _eval_module_and_object(s):
+
+	module_name, variable_name = s.split(":")
+
+	# module = imp.load_source("context_processor", os.path.join(self.environment_src, module_name))
+	module = importlib.import_module(module_name)
+	variable_name_list = variable_name.split(".")
+	o = module
+
+	for v in variable_name_list:
+		o = getattr(o, v)
+
+	return module, o
+
 class Site(object):
 
 	default_settings = {
-		"database": {},
+		# "database": {},
 		"environment": {
 			"views": "views.yaml",
 			"pages": "pages",
 			"templates": "templates",
 			"assets": "assets",
-			"database": "db.yaml"
+			# "database": "db.yaml"
+			"user": "user.yaml"
 		},
 		"default_block": "content"
+	}
+
+	default_user_settings = {
+		"database": {}
 	}
 
 	def __init__(self, environment, load=True):
 
 		self.environment = os.path.abspath(environment)
 		self.settings = dict(self.default_settings)
+		self.user_settings = dict(self.default_user_settings)
 		self.views = []
+		self.db = {}
 
 		if not load or not os.path.exists(self.environment_src):
 			return
 
-		try:
-			self.load_environment()
-		except IOError, OSError:
-			pass
+		self.load_environment()
+
+		sys.path.append(self.environment_src)
 
 	def load_environment(self):
 
 		self.load_settings()
+		self.load_user_settings()
 		self.load_templates()
 		self.load_views()
 		self.load_db()
 
 	def load_db(self):
 
-		db_engine = self.settings["database"].get("engine")
+		db_engine = self.user_settings["database"].get("engine")
 		if not db_engine:
 			return
 
 		if db_engine == "yaml":
-			with open(os.path.join(self.environment_src, self.settings["environment"]["database"])) as stream:
+			with open(os.path.join(self.environment_src, self.user_settings["database"]["uri"])) as stream:
 				self.db = yaml.load(stream) or {}
 		elif db_engine == "csv":
-			db_fnames = self.settings["environment"]["database"]
-			if not isinstance(db_fnames, list):
-				db_fnames = [db_fnames]
+			db_fnames = _collection(self.user_settings["database"]["uri"])
 
-			store_csv_as = self.settings["database"].get("store_csv_as", "array")
+			store_csv_as = self.user_settings["database"].get("store_csv_as", "array")
 			self.db = {}
 
 			for fname in db_fnames:
@@ -94,7 +117,7 @@ class Site(object):
 					else:
 						raise ValueError("{0} is not a recognized csv storage format".format(store_csv_as))
 
-					if self.settings["database"].get("convert_numbers", True):
+					if self.user_settings["database"].get("convert_numbers", True):
 						for row in self.db[table_name]:
 							if store_csv_as == "dict":
 								for k, v in row.items():
@@ -108,6 +131,9 @@ class Site(object):
 										row[i] = _tonumber(v)
 									except:
 										pass
+		elif db_engine in ["sqlite", "postgresql", "mysql"]:
+			self.db_engine = sqlalchemy.create_engine(self.user_settings["database"]["uri"])
+			self.db = sqlalchemy.orm.sessionmaker(bind=self.db_engine)()
 
 	def load_templates(self):
 
@@ -133,7 +159,15 @@ class Site(object):
 			settings = yaml.load(settings_file)
 			_deep_update(self.settings, settings)
 
-		db = self.settings["environment"]["database"]
+	def load_user_settings(self):
+
+		if not self.settings["environment"]["user"]:
+			return
+
+		with open(os.path.join(self.environment_src, self.settings["environment"]["user"])) as settings_file:
+			self.user_settings = yaml.load(settings_file)
+
+		db = self.user_settings["database"]["uri"]
 
 		if not db:
 			return
@@ -144,7 +178,7 @@ class Site(object):
 			fname = db
 
 		# attempt to infer db engine from file name, if one is not specified
-		engine = self.settings["database"].get("engine") or {
+		engine = self.user_settings["database"].get("engine") or {
 			"yaml": "yaml",
 			"csv": "csv",
 			"sqlite": "sqlite",
@@ -158,7 +192,7 @@ class Site(object):
 		elif isinstance(db, list) and engine != "csv":
 			raise ValueError("{0} does not support multiple database files".format(engine))
 
-		self.settings["database"]["engine"] = engine
+		self.user_settings["database"]["engine"] = engine
 
 	def init_environment(self):
 
@@ -175,10 +209,13 @@ class Site(object):
 		with open(os.path.join(self.environment_src, "settings.yaml"), "w") as settings_file:
 			yaml.dump(self.settings, settings_file, default_flow_style=False)
 
+		with open(os.path.join(self.environment_src, "user.yaml"), "w") as settings_file:
+			yaml.dump(self.user_settings, settings_file, default_flow_style=False)
+
 		with open(os.path.join(self.environment_src, "views.yaml"), "w") as views_file:
 			pass
 
-		db_filename = self.settings["environment"]["database"]
+		db_filename = self.user_settings["database"]["uri"]
 		with open(os.path.join(self.environment_src, db_filename), "w") as views_file:
 			pass
 
@@ -243,6 +280,9 @@ class Site(object):
 		if os.path.abspath(self.environment_src) in os.path.abspath(out):
 			raise OSError("Cannot build site in source directory")
 
+		if not os.path.exists(self.environment_src):
+			raise OSError("Cannot find source directory")
+
 		views = views or self.views
 
 		if os.path.exists(out):
@@ -278,15 +318,16 @@ class Site(object):
 
 			#else, build the page for this view
 
+			# create context dict
 			context = dict(route=view["full_route"], **view.get("context", {}))
+			# query the database
+
 			context["query"] = self.query_db(view.get("query"))
 
 			#determine the markdown pages to use for this view
 
 			page_fnames = view.get("pages", ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"])
-
-			if not isinstance(page_fnames, collections.Iterable) or isinstance(page_fnames, six.string_types):
-				page_fnames = [page_fnames]
+			page_fnames = _collection(page_fnames)
 
 			page_fnames = [os.path.join(
 				self.environment_src,
@@ -299,19 +340,20 @@ class Site(object):
 			context_processor_name = view.get("context_processor")
 			if context_processor_name:
 				try:
-					module_name, variable_name = context_processor_name.split(":")
+					# module_name, variable_name = context_processor_name.split(":")
+					module, context_processor = _eval_module_and_object(context_processor_name)
 				except ValueError:
-					raise ValueError("incorrect syntax for context_processor value")
+					raise ValueError("incorrect syntax for 'context_processor'")
 
-				# module = import_module(module_name)
-				module = imp.load_source("context_processor", os.path.join(self.environment_src, module_name))
-				variable_name_list = variable_name.split(".")
-				o = module
+				# module = imp.load_source("context_processor", os.path.join(self.environment_src, module_name))
+				# module = importlib.import_module(module_name)
+				# variable_name_list = variable_name.split(".")
+				# o = module
 
-				for v in variable_name_list:
-					o = getattr(o, v)
+				# for v in variable_name_list:
+				# 	o = getattr(o, v)
 
-				context_processor = o
+				# context_processor = o
 			else:
 				context_processor = None
 
@@ -367,15 +409,20 @@ class Site(object):
 
 	def query_db(self, query=None):
 
+		if not self.db:
+			return
+
 		method = {
 			"yaml": self.query_yaml,
 			"sqlite": self.query_sqlite,
 			"postgresql": self.query_postgresql,
 			"mysql": self.query_mysql,
 			"csv": self.query_csv
-		}[self.settings["database"]["engine"]]
+		}[self.user_settings["database"]["engine"]]
 
-		return method(query)
+
+		r = method(query)
+		return r
 
 	def query_yaml(self, query=None):
 
@@ -387,17 +434,57 @@ class Site(object):
 		return condition(self.db)
 	
 	def query_sqlite(self, query=None):
-		pass
+		return self.query_sql(query)
 	
 	def query_postgresql(self, query=None):
-		pass
+		return self.query_sql(query)
 	
 	def query_mysql(self, query=None):
-		pass
+		return self.query_sql(query)
+
+	def query_sql(self, query=None):
+
+		if not query:
+			return self.db
+		elif isinstance(query, six.string_types):
+			return self.db_engine.execute(query)
+
+		if not query.get("models"):
+			raise KeyError("query must specify database models")
+		
+		models_modules = {"sqlalchemy": sqlalchemy}
+		models = []
+		for s in  _collection(query["models"]):
+			try:
+				_, model = _eval_module_and_object(s)
+				models.append(model)
+
+				module_name = s.split(":")[0].split(".")
+				for i, sub in enumerate(module_name):
+					full_name = ".".join(module_name[:i+1])
+					models_modules[full_name] = importlib.import_module(full_name)
+			except ValueError:
+				raise ValueError("incorrect syntax for 'models'")
+
+		q = self.db.query(*models)
+
+		if query.get("filter"):
+			filters = _collection(query["filter"])
+
+			for fil in filters:
+				q = q.filter(eval("lambda: " + fil, models_modules)())
+			
+		if query.get("order"):
+			order = _collection(query["order"])
+
+			for o in order:
+				f = eval("lambda: " + o, models_modules)
+				q = q.order_by(f())
+
+		return q.all()
 	
 	def query_csv(self, query=None):
 		
-
 		if not query:
 			return self.db
 
@@ -423,10 +510,10 @@ class Site(object):
 			copy = filter(filter_key, copy)
 
 		if query.get("order"):
-			if not isinstance(query["order"], list):
-				query["order"] = [query["order"]]
+			# if not isinstance(query["order"], list):
+			# 	query["order"] = [query["order"]]
 
-			order = [k.split(" ") for k in query["order"]]
+			order = [k.split(" ") for k in _collection(query["order"])]
 
 			for i, key in enumerate(order):
 				if key[-1] in {"ascending", "descending"}:
