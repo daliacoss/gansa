@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import sys, os, collections, shutil, csv, functools, imp, importlib
+import sys, os, collections, shutil, csv, functools, copy, importlib
 import jinja2, markdown, yaml, sqlalchemy, sqlalchemy.orm, mongoengine
 from . import six
 from markdown.extensions.meta import MetaExtension
@@ -53,14 +53,15 @@ def _eval_module_and_object(s):
 class Site(object):
 
 	default_settings = {
-		# "database": {},
 		"environment": {
 			"views": "views.yaml",
 			"pages": "pages",
 			"templates": "templates",
 			"assets": "assets",
-			# "database": "db.yaml"
 			"user": "user.yaml"
+		},
+		"pages": {
+			"extensions": []
 		},
 		"templates": {
 			"default_block": "content"
@@ -74,8 +75,8 @@ class Site(object):
 	def __init__(self, environment, load=True):
 
 		self.environment = os.path.abspath(environment)
-		self.settings = dict(self.default_settings)
-		self.user_settings = dict(self.default_user_settings)
+		self.settings = copy.deepcopy(self.default_settings)
+		self.user_settings = copy.deepcopy(self.default_user_settings)
 		self.views = []
 		self.db = {}
 
@@ -158,8 +159,9 @@ class Site(object):
 
 		with open(os.path.join(self.environment_src, self.settings["environment"]["views"])) as vstream:
 			self.views = yaml.load(vstream) or []
-		self.set_full_routes()
-		self.set_templates()
+		self.set_view_full_routes()
+		self.set_view_templates()
+		self.set_view_contexts()
 
 	def load_settings(self, merge=True):
 		"""
@@ -181,7 +183,7 @@ class Site(object):
 		with open(os.path.join(self.environment_src, self.settings["environment"]["user"])) as settings_file:
 			self.user_settings = yaml.load(settings_file)
 
-		db = self.user_settings["database"]["uri"]
+		db = self.user_settings["database"].get("uri")
 
 		if not db:
 			return
@@ -244,10 +246,6 @@ class Site(object):
 		with open(os.path.join(self.environment_src, "views.yaml"), "w") as views_file:
 			pass
 
-		db_filename = self.user_settings["database"]["uri"]
-		with open(os.path.join(self.environment_src, db_filename), "w") as views_file:
-			pass
-
 	@property
 	def environment_src(self):
 		return os.path.join(self.environment, "src")
@@ -274,7 +272,7 @@ class Site(object):
 
 		return routeList
 
-	def set_full_routes(self, views=None, route_prefix="/"):
+	def set_view_full_routes(self, views=None, route_prefix="/"):
 		"""set full routes for each view"""
 
 		views = views or self.views
@@ -282,11 +280,11 @@ class Site(object):
 		for view in views:
 			view["full_route"] = route_prefix + view["route"]
 			if view.get("subviews"):
-				self.set_full_routes(views=view["subviews"], route_prefix = view["full_route"] + "/")
+				self.set_view_full_routes(views=view["subviews"], route_prefix = view["full_route"] + "/")
 			elif not view["route"]:
 				raise ValueError("view route must not be blank unless view has subviews")
 
-	def set_templates(self, views=None, template=""):
+	def set_view_templates(self, views=None, template=""):
 		"""
 		explicitly set templates for each view.
 
@@ -301,7 +299,20 @@ class Site(object):
 				view["template"] = template
 
 			if view.get("subviews"):
-				self.set_templates(views=view["subviews"], template=view["template"])
+				self.set_view_templates(views=view["subviews"], template=view["template"])
+
+	def set_view_contexts(self, views=None, context=None):
+		"""set context tables for each view"""
+
+		views = views or self.views
+		context = context or {}
+
+		for view in views:
+			if not view.get("context"):
+				view["context"] = copy.deepcopy(context)
+
+			if view.get("subviews"):
+				self.set_view_contexts(views=view["subviews"], context=view["context"])
 
 	def build(self, out="", views=None):
 
@@ -321,7 +332,7 @@ class Site(object):
 		else:
 			os.mkdir(out)
 
-		md = markdown.Markdown(extensions=[MetaExtension()])
+		md = markdown.Markdown(extensions = [MetaExtension()] + self.settings["pages"]["extensions"])
 
 		#copy assets (skip if this is not the top level of the recursive build)
 		if views == self.views:
