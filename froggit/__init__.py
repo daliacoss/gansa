@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 import sys, os, collections, shutil, csv, functools, imp, importlib
-import jinja2, markdown, yaml, sqlalchemy, sqlalchemy.orm
+import jinja2, markdown, yaml, sqlalchemy, sqlalchemy.orm, mongoengine
 from . import six
 from markdown.extensions.meta import MetaExtension
 
@@ -14,7 +14,7 @@ TMP_TEMPLATE = """
 """
 
 #TODO: add mongodb, couchdb
-SUPPORTED_DB_ENGINES = {"yaml", "sqlite", "postgresql", "mysql", "csv"}
+SUPPORTED_DB_ENGINES = {"yaml", "sqlite", "postgresql", "mysql", "csv", "mongodb"}
 
 def _deep_update(dict1, dict2):
 	for k, v in dict2.items():
@@ -146,6 +146,8 @@ class Site(object):
 				self.db_engine = sqlalchemy.create_engine(self.user_settings["database"]["uri"])
 
 			self.db = sqlalchemy.orm.sessionmaker(bind=self.db_engine)()
+		elif db_engine == "mongodb":
+			self.db = mongoengine.connect(host=self.user_settings["database"]["uri"])
 
 	def load_templates(self):
 
@@ -195,7 +197,12 @@ class Site(object):
 		engine = self.user_settings["database"].get("engine")
 
 		if not engine:
-			for pair in [("sqlite://","sqlite"), ("postgresql://","postgresql"), ("mysql://","mysql")]:
+			for pair in [
+				("sqlite://","sqlite"),
+				("postgresql://","postgresql"),
+				("mysql://","mysql"),
+				("mongodb://","mongodb")
+			]:
 				if fname.startswith(pair[0]):
 					engine = pair[1]
 					break
@@ -439,9 +446,9 @@ class Site(object):
 			"sqlite": self.query_sqlite,
 			"postgresql": self.query_postgresql,
 			"mysql": self.query_mysql,
-			"csv": self.query_csv
+			"csv": self.query_csv,
+			"mongodb": self.query_mongodb
 		}[self.user_settings["database"]["engine"]]
-
 
 		r = method(query)
 		return r
@@ -464,12 +471,33 @@ class Site(object):
 	def query_mysql(self, query=None):
 		return self.query_sql(query)
 
+	def query_mongodb(self, query=None):
+
+		if not query:
+			return None
+
+		if not query.get("model"):
+			raise KeyError("query must specify database model")
+
+		_, model = _eval_module_and_object(query["model"])
+
+		q = model.objects
+
+		if query.get("filter"):
+			q = q.filter(**query["filter"])
+
+		if query.get("order"):
+			order = _collection(query["order"])
+			q = q.order_by(*order)
+
+		return q
+
 	def query_sql(self, query=None):
 
 		if not query:
 			return self.db
 		elif isinstance(query, six.string_types):
-			return self.db_engine.execute(query)
+			return [row for row in self.db_engine.execute(query)]
 
 		if not query.get("models"):
 			raise KeyError("query must specify database models")
