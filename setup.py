@@ -15,7 +15,7 @@ setup(
     author_email = "coss@cosstropolis.com",
     description = "A tiny static site generator.",
     packages = ["froggit"],
-    install_requires = ["jinja2", "Markdown", "PyYAML"],
+    install_requires = ["jinja2", "Markdown", "PyYAML", "sqlalchemy", "mongoengine", "pyjade"],
     scripts = scripts,
     console = console,
 )
