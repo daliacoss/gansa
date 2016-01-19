@@ -61,10 +61,12 @@ class Site(object):
 			"user": "user.yaml"
 		},
 		"pages": {
-			"extensions": []
+			"extensions": [],
+			"extension_options": {},
 		},
 		"templates": {
-			"default_block": "content"
+			"default_block": "content",
+			"builtins": ["len", "range", "enumerate"]
 		}
 	}
 
@@ -160,8 +162,12 @@ class Site(object):
 		with open(os.path.join(self.environment_src, self.settings["environment"]["views"])) as vstream:
 			self.views = yaml.load(vstream) or []
 		self.set_view_full_routes()
-		self.set_view_templates()
-		self.set_view_contexts()
+		# self.set_view_templates()
+		# self.set_view_contexts()
+
+		self.set_view_parameter(self.views, "template", default_value="")
+		self.set_view_parameter(self.views, "context", default_value={})
+		self.set_view_parameter(self.views, "context_processor", default_value="")
 
 	def load_settings(self, merge=True):
 		"""
@@ -278,41 +284,28 @@ class Site(object):
 		views = views or self.views
 
 		for view in views:
-			view["full_route"] = route_prefix + view["route"]
+			# print(view["route"])
+			if not view["route"]:
+				view["full_route"] = ""
+			else:
+				view["full_route"] = route_prefix + view["route"]
+
 			if view.get("subviews"):
 				self.set_view_full_routes(views=view["subviews"], route_prefix = view["full_route"] + "/")
 			elif not view["route"]:
 				raise ValueError("view route must not be blank unless view has subviews")
 
-	def set_view_templates(self, views=None, template=""):
-		"""
-		explicitly set templates for each view.
+	def set_view_parameter(self, views, key, default_value, value=None):
+		""" recursively set a parameter for a view and its subviews """
 
-		if a view template is not explicitly defined, refer to the nearest
-		ancestor with an explicitly defined template.
-		"""
-
-		views = views or self.views
+		value = value or default_value
 
 		for view in views:
-			if not view.get("template"):
-				view["template"] = template
+			if not view.get(key):
+				view[key] = copy.deepcopy(value)
 
 			if view.get("subviews"):
-				self.set_view_templates(views=view["subviews"], template=view["template"])
-
-	def set_view_contexts(self, views=None, context=None):
-		"""set context tables for each view"""
-
-		views = views or self.views
-		context = context or {}
-
-		for view in views:
-			if not view.get("context"):
-				view["context"] = copy.deepcopy(context)
-
-			if view.get("subviews"):
-				self.set_view_contexts(views=view["subviews"], context=view["context"])
+				self.set_view_parameter(view["subviews"], key, default_value, value=view[key])
 
 	def build(self, out="", views=None):
 
@@ -332,7 +325,10 @@ class Site(object):
 		else:
 			os.mkdir(out)
 
-		md = markdown.Markdown(extensions = [MetaExtension()] + self.settings["pages"]["extensions"])
+		md = markdown.Markdown(
+			extensions = [MetaExtension()] + self.settings["pages"]["extensions"],
+			extension_configs = self.settings["pages"]["extension_options"]
+		)
 
 		#copy assets (skip if this is not the top level of the recursive build)
 		if views == self.views:
@@ -359,9 +355,17 @@ class Site(object):
 			#else, build the page for this view
 
 			# create context dict
-			context = dict(route=view["full_route"], **view.get("context", {}))
-			# query the database
+			context = dict(
+				[(k, globals()["__builtins__"][k]) for k in self.settings["templates"]["builtins"]],
+				full_route=view["full_route"],
+				route=view["route"],
+				# len=len,
+				# enumerate=enumerate,
+				# range=range,
+				**view.get("context", {})
+			)
 
+			# query the database
 			context["query"] = self.query_db(view.get("query"))
 
 			#determine the markdown pages to use for this view
@@ -405,6 +409,7 @@ class Site(object):
 					for page_fname in page_fnames:
 						with open(page_fname, "r") as page_file:
 							html = md.convert(page_file.read())
+							html = html.replace("%", "&#37;").replace("{", "&#123;").replace("}", "&#125;")
 							meta = {}
 							special = {}
 
