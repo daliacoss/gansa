@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import sys, os, collections, shutil, csv, functools, copy, importlib
+import sys, os, collections, shutil, csv, functools, copy, importlib, codecs
 import jinja2, markdown, yaml, sqlalchemy, sqlalchemy.orm, mongoengine
 from . import six
 from markdown.extensions.meta import MetaExtension
+
+# reload(sys)
+# sys.setdefaultencoding('utf8')
 
 TMP_TEMPLATE = """
 {{% extends '{0}' %}}
@@ -66,7 +69,7 @@ class Site(object):
 		},
 		"templates": {
 			"default_block": "content",
-			"builtins": ["len", "range", "enumerate"]
+			"builtins": []
 		}
 	}
 
@@ -109,33 +112,33 @@ class Site(object):
 		elif db_engine == "csv":
 			db_fnames = _collection(self.user_settings["database"]["uri"])
 
-			store_csv_as = self.user_settings["database"].get("store_csv_as", "array")
+			store_row_as = self.user_settings["database"].get("store_row_as", "array")
 			self.db = {}
 
 			for fname in db_fnames:
 				with open(os.path.join(self.environment_src, fname)) as stream:
 					table_name = ".".join(fname.split(".")[:-1])
-					if store_csv_as == "dict":
+					if store_row_as == "dict":
 						self.db[table_name] = [row for row in csv.DictReader(stream)]
-					elif store_csv_as == "array":
+					elif store_row_as == "array":
 						self.db[table_name] = [row for row in csv.reader(stream)]
 					else:
-						raise ValueError("{0} is not a recognized csv storage format".format(store_csv_as))
+						raise ValueError("{0} is not a recognized csv storage format".format(store_row_as))
 
-					if self.user_settings["database"].get("convert_numbers", True):
+					if self.user_settings["database"].get("convert_numbers_and_bools", True):
 						for row in self.db[table_name]:
-							if store_csv_as == "dict":
+							if store_row_as == "dict":
 								for k, v in row.items():
 									try:
 										row[k] = _tonumber(v)
 									except:
-										pass
-							if store_csv_as == "array":
+										row[k] = {"true":True, "false":False}.get(row[k], row[k])
+							if store_row_as == "array":
 								for i, v in enumerate(row):
 									try:
 										row[i] = _tonumber(v)
 									except:
-										pass
+										row[i] = {"true":True, "false":False}.get(row[i], row[i])
 		elif db_engine in ["sqlite", "postgresql", "mysql"]:
 			if db_engine == "sqlite":
 				uri = self.user_settings["database"]["uri"]
@@ -168,6 +171,7 @@ class Site(object):
 		self.set_view_parameter(self.views, "template", default_value="")
 		self.set_view_parameter(self.views, "context", default_value={})
 		self.set_view_parameter(self.views, "context_processor", default_value="")
+		# self.set_view_parameter(self.views, "pages", default_value="")
 
 	def load_settings(self, merge=True):
 		"""
@@ -301,7 +305,7 @@ class Site(object):
 		value = value or default_value
 
 		for view in views:
-			if not view.get(key):
+			if view.get(key) == None:
 				view[key] = copy.deepcopy(value)
 
 			if view.get("subviews"):
@@ -359,11 +363,8 @@ class Site(object):
 				[(k, globals()["__builtins__"][k]) for k in self.settings["templates"]["builtins"]],
 				full_route=view["full_route"],
 				route=view["route"],
-				# len=len,
-				# enumerate=enumerate,
-				# range=range,
-				**view.get("context", {})
 			)
+			context.update(**view.get("context", {}))
 
 			# query the database
 			context["query"] = self.query_db(view.get("query"))
@@ -401,14 +402,15 @@ class Site(object):
 			else:
 				context_processor = None
 
-			with open(os.path.join(out, view["route"]), "w") as out_file:
+			with codecs.open(os.path.join(out, view["route"]), mode="w", encoding="utf-8") as out_file:
 				try:
 					blocks = {}
 					tmp_template = "{{% extends '{0}' %}}".format(view["template"])
 
 					for page_fname in page_fnames:
-						with open(page_fname, "r") as page_file:
-							html = md.convert(page_file.read())
+						# with open(page_fname, "r") as page_file:
+						with codecs.open(page_fname, mode="r", encoding="utf-8") as page_file:
+							html = md.convert(six.text_type(page_file.read()))
 							html = html.replace("%", "&#37;").replace("{", "&#123;").replace("}", "&#125;")
 							meta = {}
 							special = {}
@@ -431,12 +433,13 @@ class Site(object):
 
 							block_name = special.get("__block__", self.settings["templates"]["default_block"])
 							blocks[block_name] = html
-							tmp_template += "{{% block {0}%}}{1}{{% endblock %}}".format(block_name, html)
+
+							tmp_template += six.text_type("{{% block {0}%}}{1}{{% endblock %}}").format(block_name, html)
 
 					if context_processor:
 						context = context_processor(context, dict(view))
 
-					with open(tmp_fname, "w") as tmp:
+					with codecs.open(tmp_fname, mode="w", encoding="utf-8") as tmp:
 						tmp.write(tmp_template)
 
 					template = self.templates.get_template("_tmp.html")
