@@ -564,8 +564,9 @@ class Site(object):
 		copy = list(table)
 
 		if query.get("filter"):
-			if not isinstance(query["filter"], list):
-				query["filter"] = [query["filter"]]
+			# if not isinstance(query["filter"], list):
+			# 	query["filter"] = [query["filter"]]
+			query["filter"] = _collection(query["filter"])
 
 			conditions = [eval("lambda row: " + l, {}) for l in query["filter"]]
 
@@ -582,13 +583,30 @@ class Site(object):
 			# if not isinstance(query["order"], list):
 			# 	query["order"] = [query["order"]]
 
-			order = [k.split(" ") for k in _collection(query["order"])]
+			order = []
+			for k in _collection(query["order"]):
+				#normalize the key into a tuple, with "ascending" or "descending" as the second element
 
-			for i, key in enumerate(order):
-				if key[-1] in {"ascending", "descending"}:
-					order[i] = (" ".join(key[:-1]), key[-1])
+				if isinstance(k, six.string_types):
+					_o = k.split(" ")
+
+					if len(_o) > 1 and _o[-1] in {"ascending", "descending"}:
+						v = (" ".join(_o[:-1]), o[-1])
+					else:
+						try:
+							v = (_tonumber(_o[0]), "ascending")
+						except:
+							v = (_o[0], "ascending")
+
+					order.append(v)
 				else:
-					order[i] = (" ".join(key), "ascending")
+					order.append((k, "ascending"))
+
+			# for i, key in enumerate(order):
+			# 	if key[-1] in {"ascending", "descending"}:
+			# 		order[i] = (" ".join(key[:-1]), key[-1])
+			# 	else:
+			# 		order[i] = (" ".join(key), "ascending")
 
 			for k in reversed(order):
 				copy.sort(key = (lambda item: item[k[0]]), reverse=(k[1]=="descending"))
