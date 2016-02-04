@@ -70,6 +70,9 @@ class Site(object):
 		"templates": {
 			"default_block": "content",
 			"builtins": []
+		},
+		"callbacks": {
+			"postrender": ""
 		}
 	}
 
@@ -345,6 +348,10 @@ class Site(object):
 						shutil.copy(os.path.join(assets_folder, f), out)
 			except OSError:
 				print("Could not copy assets")
+
+			#reset g
+			self.g = {}
+
 		tmp_fname  = os.path.join(self.environment_src, "templates", "_tmp.html")
 
 		#create the html pages
@@ -436,24 +443,37 @@ class Site(object):
 
 							tmp_template += six.text_type("{{% block {0}%}}{1}{{% endblock %}}").format(block_name, html)
 
-					if context_processor:
-						context = context_processor(context, dict(view))
-
 					with codecs.open(tmp_fname, mode="w", encoding="utf-8") as tmp:
 						tmp.write(tmp_template)
 
 					template = self.templates.get_template("_tmp.html")
-					out_file.write(template.render(**context))
 				# if no markdown page was found, just write context variables to the template
 				except OSError:
 					template = self.templates.get_template(view["template"])
-					out_file.write(template.render(**context).encode('utf8'))
 
+				if context_processor:
+					new_context = context_processor(context, dict(view), self)
+					if new_context != None:
+						context = new_context
+
+				try:
+					stream = template.render(**context)
+				except TypeError:
+					raise TypeError("context processor must return dict or other mapping")
+
+				out_file.write(stream)
 		if views == self.views:
 			try:
 				os.remove(tmp_fname)
 			except OSError:
 				pass
+
+		if views == self.views and self.settings["callbacks"].get("postrender"):
+			try:
+				_, callback = _eval_module_and_object(self.settings["callbacks"]["postrender"])
+			except ValueError:
+				raise ValueError("incorrect syntax for 'postrender'")
+			callback(self)
 
 	def query_db(self, query=None):
 
@@ -537,12 +557,21 @@ class Site(object):
 
 		q = self.db.query(*models)
 
+		if query.get("join"):
+			joins = _collection(query["join"])
+			args = []
+
+			for j in joins:
+				args.append(eval("lambda: " + j, models_modules)())
+
+			q = q.join(*args)
+
 		if query.get("filter"):
 			filters = _collection(query["filter"])
 
 			for fil in filters:
 				q = q.filter(eval("lambda: " + fil, models_modules)())
-			
+
 		if query.get("order"):
 			order = _collection(query["order"])
 
