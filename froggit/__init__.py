@@ -245,7 +245,7 @@ class Site(object):
 			os.path.join(self.environment_src, "assets"),
 			os.path.join(self.environment_src, "pages"),
 			os.path.join(self.environment_src, "templates"),
-			os.path.join(self.environment, "distribute")
+			os.path.join(self.environment_dist)
 		]:
 			if not os.path.exists(d):
 				os.mkdir(d)
@@ -265,7 +265,7 @@ class Site(object):
 
 	@property
 	def environment_dist(self):
-		return os.path.join(self.environment, "dist")
+		return os.path.join(self.environment, "distribute")
 
 	@property
 	def routes(self):
@@ -379,13 +379,14 @@ class Site(object):
 			#determine the markdown pages to use for this view
 
 			page_fnames = view.get("pages", ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"])
-			page_fnames = _collection(page_fnames)
-
-			page_fnames = [os.path.join(
-				self.environment_src,
-				self.settings["environment"]["pages"],
-				fname
-			) for fname in page_fnames]
+			if page_fnames:
+				page_fnames = [os.path.join(
+					self.environment_src,
+					self.settings["environment"]["pages"],
+					fname
+				) for fname in _collection(page_fnames)]
+			else:
+				page_fnames = []
 
 			#load the context processor
 			#syntax: "module.submodule:callable"
@@ -473,7 +474,7 @@ class Site(object):
 				_, callback = _eval_module_and_object(self.settings["callbacks"]["postrender"])
 			except ValueError:
 				raise ValueError("incorrect syntax for 'postrender'")
-			callback(self)
+			callback(self, {"views":views, "out":out})
 
 	def query_db(self, query=None):
 

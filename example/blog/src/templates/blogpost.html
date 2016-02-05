@@ -1,0 +1,13 @@
+<html>
+<head>
+    <title>{{title}}</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <link rel="stylesheet" href="main.css" type="text/css" />
+</head>
+<body>
+    <h1>{{title}}</h1>
+    {% if date_published %}<p>Published {{ date_published.strftime("%B %d, %Y").replace(" 0", " ") }} by {{ author }}</p>{% endif %}
+
+    {% block content %}{% endblock %}
+</body>
+</html>

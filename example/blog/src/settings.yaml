@@ -1,0 +1,17 @@
+callbacks:
+  postrender: callbacks:postrender
+environment:
+  assets: assets
+  pages: pages
+  templates: templates
+  user: user.yaml
+  views: views.yaml
+pages:
+  extension_options: {}
+  extensions: []
+templates:
+  builtins:
+    - len
+    - range
+    - type
+  default_block: content

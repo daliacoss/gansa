@@ -7,4 +7,6 @@ venv
 
 ignore
 *.sublime-*
-
+example/*/src/user.yaml
+example/*/distribute
+example/blog/src/blog.db

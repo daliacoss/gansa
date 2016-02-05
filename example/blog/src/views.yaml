@@ -1,0 +1,10 @@
+- route: index.html
+  template: blogindex.html
+  context_processor: callbacks:blog_index
+  pages: []
+- route: ""
+  context_processor: callbacks:blog_post
+  template: blogpost.html
+  subviews:
+    - route: myfirstpost.html
+    - route: mysecondpost.html
