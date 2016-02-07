@@ -6,9 +6,6 @@ import jinja2, markdown, yaml, sqlalchemy, sqlalchemy.orm, mongoengine
 from . import six
 from markdown.extensions.meta import MetaExtension
 
-# reload(sys)
-# sys.setdefaultencoding('utf8')
-
 TMP_TEMPLATE = """
 {{% extends '{0}' %}}
 {{% block {1} %}}
@@ -16,7 +13,6 @@ TMP_TEMPLATE = """
 {{% endblock %}}
 """
 
-#TODO: add mongodb, couchdb
 SUPPORTED_DB_ENGINES = {"yaml", "sqlite", "postgresql", "mysql", "csv", "mongodb"}
 
 def _deep_update(dict1, dict2):
@@ -482,18 +478,18 @@ class Site(object):
 			return
 
 		method = {
-			"yaml": self.query_yaml,
-			"sqlite": self.query_sqlite,
-			"postgresql": self.query_postgresql,
-			"mysql": self.query_mysql,
-			"csv": self.query_csv,
-			"mongodb": self.query_mongodb
+			"yaml": self._query_yaml,
+			"sqlite": self._query_sqlite,
+			"postgresql": self._query_postgresql,
+			"mysql": self._query_mysql,
+			"csv": self._query_csv,
+			"mongodb": self._query_mongodb
 		}[self.user_settings["database"]["engine"]]
 
 		r = method(query)
 		return r
 
-	def query_yaml(self, query=None):
+	def _query_yaml(self, query=None):
 
 		if not query:
 			return self.db
@@ -502,16 +498,16 @@ class Site(object):
 
 		return condition(self.db)
 	
-	def query_sqlite(self, query=None):
-		return self.query_sql(query)
+	def _query_sqlite(self, query=None):
+		return self._query_sql(query)
 	
-	def query_postgresql(self, query=None):
-		return self.query_sql(query)
+	def _query_postgresql(self, query=None):
+		return self._query_sql(query)
 	
-	def query_mysql(self, query=None):
-		return self.query_sql(query)
+	def _query_mysql(self, query=None):
+		return self._query_sql(query)
 
-	def query_mongodb(self, query=None):
+	def _query_mongodb(self, query=None):
 
 		if not query:
 			return None
@@ -532,7 +528,7 @@ class Site(object):
 
 		return q
 
-	def query_sql(self, query=None):
+	def _query_sql(self, query=None):
 
 		if not query:
 			return self.db
@@ -582,7 +578,7 @@ class Site(object):
 
 		return q.all()
 	
-	def query_csv(self, query=None):
+	def _query_csv(self, query=None):
 		
 		if not query:
 			return self.db

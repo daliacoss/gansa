@@ -14,13 +14,16 @@ class CommandLineInterface(object):
 		try:
 			command = self.commands[argv[1]]
 		except (IndexError, KeyError):
-			return (
-				"usage: {0} <command> [<args>]\n"
-				"for help regarding a specific command, use {0} <command> --help\n"
-				"commands: "
-			).format(os.path.basename(argv[0])) + ", ".join(sorted(self.commands.keys()))
+			return self.help(argv)
 		else:
 			return command(argv)
+
+	def help(self, argv):
+		return (
+			"usage: {0} <command> [<args>]\n"
+			"for help regarding a specific command, use {0} <command> --help\n"
+			"commands: "
+		).format(os.path.basename(argv[0])) + ", ".join(sorted(self.commands.keys()))
 
 	def register_command(self, name, argdata):
 
