@@ -424,7 +424,7 @@ class Site(object):
 							special = {}
 
 							for k, v in md.Meta.items():
-								# double-underscore vars are special vars used by froggit
+								# double-underscore vars are special vars used by gansa
 								if k == "__block__":
 									d = special
 								else:

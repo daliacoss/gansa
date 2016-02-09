@@ -1,6 +1,6 @@
 import models
 import datetime
-from froggit.six.moves import input
+from gansa.six.moves import input
 
 def blog_post(context, view, site):
 

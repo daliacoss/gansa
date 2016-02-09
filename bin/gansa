@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 import os, sys, argparse, traceback
-import froggit
+import gansa
 
 class CommandLineInterface(object):
 
@@ -61,7 +61,7 @@ cli = CommandLineInterface()
 	})
 ])
 def build(**args):
-	site = froggit.Site(environment=".")
+	site = gansa.Site(environment=".")
 	site.build(out=args["out"])
 
 @cli.register_command("init", [
@@ -72,7 +72,7 @@ def build(**args):
 	})
 ])
 def init(**args):
-	site = froggit.Site(environment=".", load=False)
+	site = gansa.Site(environment=".", load=False)
 	site.init_environment()
 
 # @cli.register_command("", [])
