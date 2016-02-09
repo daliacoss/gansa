@@ -310,7 +310,11 @@ class Site(object):
 			if view.get("subviews"):
 				self.set_view_parameter(view["subviews"], key, default_value, value=view[key])
 
-	def build(self, out="", views=None):
+	def build(self, out=""):
+
+		return self._build(out)
+
+	def _build(self, out="", views=None):
 
 		out = out or self.environment_dist
 		if os.path.abspath(self.environment_src) in os.path.abspath(out):
@@ -356,7 +360,7 @@ class Site(object):
 			#if there are subviews, we should build those instead
 			if view.get("subviews"):
 				new_out = os.path.join(out, view["route"])
-				self.build(out=new_out, views=view["subviews"])
+				self._build(out=new_out, views=view["subviews"])
 				continue
 
 			#else, build the page for this view
