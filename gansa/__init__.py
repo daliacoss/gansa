@@ -413,15 +413,6 @@ class Site(object):
 				except ValueError:
 					raise ValueError("incorrect syntax for 'context_processor'")
 
-				# module = imp.load_source("context_processor", os.path.join(self.environment_src, module_name))
-				# module = importlib.import_module(module_name)
-				# variable_name_list = variable_name.split(".")
-				# o = module
-
-				# for v in variable_name_list:
-				# 	o = getattr(o, v)
-
-				# context_processor = o
 			else:
 				context_processor = None
 
@@ -646,12 +637,6 @@ class Site(object):
 					order.append(v)
 				else:
 					order.append((k, "ascending"))
-
-			# for i, key in enumerate(order):
-			# 	if key[-1] in {"ascending", "descending"}:
-			# 		order[i] = (" ".join(key[:-1]), key[-1])
-			# 	else:
-			# 		order[i] = (" ".join(key), "ascending")
 
 			for k in reversed(order):
 				copy.sort(key = (lambda item: item[k[0]]), reverse=(k[1]=="descending"))
