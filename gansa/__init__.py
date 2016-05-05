@@ -185,7 +185,7 @@ class Site(object):
 		self.set_view_parameter(self.views, "template", default_value="")
 		self.set_view_parameter(self.views, "context", default_value={})
 		self.set_view_parameter(self.views, "context_processor", default_value="")
-		# self.set_view_parameter(self.views, "pages", default_value="")
+		self.set_view_parameter(self.views, "pages", default_value=None)
 
 	def load_settings(self, merge=True):
 		"""
@@ -316,7 +316,8 @@ class Site(object):
 	def set_view_parameter(self, views, key, default_value, value=None):
 		""" recursively set a parameter for a view and its subviews """
 
-		value = value or default_value
+		if value == None:
+			value = default_value
 
 		for view in views:
 			if view.get(key) == None:
@@ -393,7 +394,9 @@ class Site(object):
 
 			#determine the markdown pages to use for this view
 
-			page_fnames = view.get("pages", ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"])
+			page_fnames = view.get("pages")
+			if page_fnames == None:
+			    page_fnames = ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"]
 			if page_fnames:
 				page_fnames = [os.path.join(
 					self.environment_src,
