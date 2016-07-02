@@ -18,7 +18,6 @@
 from __future__ import print_function
 import sys, os, collections, shutil, csv, functools, copy, importlib, codecs
 import jinja2, markdown, yaml, sqlalchemy, sqlalchemy.orm, mongoengine, six
-# from . import six
 from markdown.extensions.meta import MetaExtension
 
 TMP_TEMPLATE = """
@@ -63,6 +62,18 @@ def _eval_module_and_object(s):
 		o = getattr(o, v)
 
 	return module, o
+
+def _path_splitall(path):
+
+	folders = []
+
+	while path:
+		path, folder = os.path.split(path)
+		if folder:
+			folders.append(folder)
+
+	folders.reverse()
+	return folders
 
 class Site(object):
 
@@ -179,8 +190,6 @@ class Site(object):
 		with open(os.path.join(self.environment_src, self.settings["environment"]["views"])) as vstream:
 			self.views = yaml.load(vstream) or []
 		self.set_view_full_routes()
-		# self.set_view_templates()
-		# self.set_view_contexts()
 
 		self.set_view_parameter(self.views, "template", default_value="")
 		self.set_view_parameter(self.views, "context", default_value={})
@@ -306,6 +315,29 @@ class Site(object):
 			if not view["route"]:
 				view["full_route"] = ""
 			else:
+				# expand view to multiple subviews if required (i.e.,
+				# "blog/posts/index.html" becomes "blogs", "posts",
+				# "index.html")
+				components = _path_splitall(view["route"])
+				if components[0]:
+					view["route"] = components[0]
+					if not view.get("subviews"):
+						originalSubviews = []
+					else:
+						originalSubviews = list(view["subviews"])
+
+					view["subviews"] = []
+
+					subviews = view["subviews"]
+					for i, c in enumerate(components[1:]):
+						newView = {
+							"route": c,
+							"subviews": []
+						}
+						subviews.append(newView)
+						subviews = newView["subviews"]
+					subviews.extend(originalSubviews)
+
 				view["full_route"] = route_prefix + view["route"]
 
 			if view.get("subviews"):
@@ -396,7 +428,7 @@ class Site(object):
 
 			page_fnames = view.get("pages")
 			if page_fnames == None:
-			    page_fnames = ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"]
+				page_fnames = ["".join(view["full_route"].lstrip("/").split(".")[:-1]) + ".md"]
 			if page_fnames:
 				page_fnames = [os.path.join(
 					self.environment_src,
@@ -510,13 +542,13 @@ class Site(object):
 		condition = eval("lambda db: " + query, {})
 
 		return condition(self.db)
-	
+
 	def _query_sqlite(self, query=None):
 		return self._query_sql(query)
-	
+
 	def _query_postgresql(self, query=None):
 		return self._query_sql(query)
-	
+
 	def _query_mysql(self, query=None):
 		return self._query_sql(query)
 
@@ -550,7 +582,7 @@ class Site(object):
 
 		if not query.get("models"):
 			raise KeyError("query must specify database models")
-		
+
 		models_modules = {"sqlalchemy": sqlalchemy}
 		models = []
 		for s in  _collection(query["models"]):
@@ -590,9 +622,9 @@ class Site(object):
 				q = q.order_by(f())
 
 		return q.all()
-	
+
 	def _query_csv(self, query=None):
-		
+
 		if not query:
 			return self.db
 
