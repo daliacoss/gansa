@@ -27,18 +27,26 @@ class CommandLineInterface(object):
 
 	def __call__(self, argv):
 		try:
-			command = self.commands[argv[1]]
-		except (IndexError, KeyError):
-			return self.help(argv)
+			if len(argv) <= 1 or argv[1] == "--help":
+				return self.help(argv)
+			else:
+				command = self.commands[argv[1]]
+		except (KeyError):
+			return self.help(argv, error=True)
 		else:
 			return command(argv)
 
-	def help(self, argv):
-		return (
+	def help(self, argv, error=False):
+		s = (
 			"usage: {0} <command> [<args>]\n"
 			"for help regarding a specific command, use {0} <command> --help\n"
 			"commands: "
 		).format(os.path.basename(argv[0])) + ", ".join(sorted(self.commands.keys()))
+
+		if error:
+			s += "\n\nerror: unrecognized command"
+
+		return s
 
 	def register_command(self, name, argdata):
 
@@ -89,6 +97,27 @@ def build(**args):
 def init(**args):
 	site = gansa.Site(environment=".", load=False)
 	site.init_environment()
+
+@cli.register_command("serve", [
+	(("-H", "--host"), {
+		"type": str,
+		"default": "127.0.0.1",
+		"help": "host name"
+	}),
+	(("-p", "--port"), {
+		"type": int,
+		"default": 5000,
+		"help": "server port"
+	}),
+	(("-v", "--verbose"), {
+		"action": "store_true",
+		"default": False,
+		"help": "print verbose error messages"
+	})
+])
+def serve(**args):
+	site = gansa.Site(environment=".", load=True)
+	site.serve(args["host"], args["port"])
 
 # @cli.register_command("", [])
 

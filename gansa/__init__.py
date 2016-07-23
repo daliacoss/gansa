@@ -358,6 +358,24 @@ class Site(object):
 			if view.get("subviews"):
 				self.set_view_parameter(view["subviews"], key, default_value, value=view[key])
 
+	def serve(self, host, port):
+		""" build the site and host it on a simple HTTP server """
+
+		self.build(self.environment_dist)
+		handler = six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler
+		httpd = six.moves.socketserver.TCPServer((host, port), handler)
+
+		os.chdir(self.environment_dist)
+
+		print ("serving {} at {}:{}".format(self.environment_dist, host, port))
+
+		try:
+			httpd.serve_forever()
+		except KeyboardInterrupt:
+			print ("shutting down server")
+			httpd.shutdown()
+			return
+
 	def build(self, out=""):
 
 		return self._build(out)
@@ -533,6 +551,7 @@ class Site(object):
 
 		r = method(query)
 		return r
+
 
 	def _query_yaml(self, query=None):
 
