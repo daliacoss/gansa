@@ -386,6 +386,7 @@ class Site(object):
 
 		self.build(self.environment_dist)
 		handler = six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler
+		six.moves.socketserver.TCPServer.allow_reuse_address = True
 		httpd = six.moves.socketserver.TCPServer((host, port), handler)
 
 		os.chdir(self.environment_dist)
