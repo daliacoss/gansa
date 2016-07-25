@@ -75,6 +75,29 @@ def _path_splitall(path):
 	folders.reverse()
 	return folders
 
+
+class BlockTable(object):
+
+	def __init__(self, parent_template):
+		self.parent_template = parent_template
+		self.blocks = {}
+
+	def add(self, block_name, html):
+
+		if not self.blocks.get(block_name):
+			self.blocks[block_name] = [html]
+		else:
+			self.blocks[block_name].append(html)
+
+	def to_template(self):
+
+		template = "{{% extends '{0}' %}}".format(self.parent_template) + os.linesep
+
+		for k, v in self.blocks.items():
+			template += six.text_type("{{% block {0}%}}{1}{{% endblock %}}").format(k, "".join(v)) + os.linesep
+
+		return template
+
 class Site(object):
 
 	default_settings = {
@@ -471,8 +494,7 @@ class Site(object):
 
 			with codecs.open(os.path.join(out, view["route"]), mode="w", encoding="utf-8") as out_file:
 				try:
-					blocks = {}
-					tmp_template = "{{% extends '{0}' %}}".format(view["template"])
+					blocks = BlockTable(view["template"])
 
 					for page_fname in page_fnames:
 						# with open(page_fname, "r") as page_file:
@@ -482,7 +504,7 @@ class Site(object):
 							meta = {}
 							special = {}
 
-							for k, v in md.Meta.items():
+							for k, v in getattr(md, "Meta", {}).items():
 								# double-underscore vars are special vars used by gansa
 								if k == "__block__":
 									d = special
@@ -499,12 +521,10 @@ class Site(object):
 							context.update(meta)
 
 							block_name = special.get("__block__", self.settings["templates"]["default_block"])
-							blocks[block_name] = html
-
-							tmp_template += six.text_type("{{% block {0}%}}{1}{{% endblock %}}").format(block_name, html)
+							blocks.add(block_name, html)
 
 					with codecs.open(tmp_fname, mode="w", encoding="utf-8") as tmp:
-						tmp.write(tmp_template)
+						tmp.write(blocks.to_template())
 
 					template = self.templates.get_template("_tmp.html")
 				# if no markdown page was found, just write context variables to the template
