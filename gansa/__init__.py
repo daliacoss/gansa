@@ -496,6 +496,7 @@ class Site(object):
 			with codecs.open(os.path.join(out, view["route"]), mode="w", encoding="utf-8") as out_file:
 				try:
 					blocks = BlockTable(view["template"])
+					blocks_as_context_vars = {}
 
 					for page_fname in page_fnames:
 						# with open(page_fname, "r") as page_file:
@@ -503,11 +504,11 @@ class Site(object):
 							html = md.convert(six.text_type(page_file.read()))
 							html = html.replace("%", "&#37;").replace("{", "&#123;").replace("}", "&#125;")
 							meta = {}
-							special = {}
+							special = {"__store_as__": "block"}
 
 							for k, v in getattr(md, "Meta", {}).items():
 								# double-underscore vars are special vars used by gansa
-								if k == "__block__":
+								if k in ("__block__", "__store_as__"):
 									d = special
 								else:
 									d = meta
@@ -522,7 +523,13 @@ class Site(object):
 							context.update(meta)
 
 							block_name = special.get("__block__", self.settings["templates"]["default_block"])
-							blocks.add(block_name, html)
+							if special["__store_as__"] == "var":
+								blocks_as_context_vars[block_name] =\
+									blocks_as_context_vars.get(block_name, "") + html
+							elif special["__store_as__"] == "block":
+								blocks.add(block_name, html)
+
+					context.update(blocks_as_context_vars)
 
 					with codecs.open(tmp_fname, mode="w", encoding="utf-8") as tmp:
 						tmp.write(blocks.to_template())
