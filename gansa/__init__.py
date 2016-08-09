@@ -231,12 +231,13 @@ class Site(object):
 			settings = yaml.load(settings_file)
 			_deep_update(self.settings, settings)
 
-	def load_user_settings(self):
+	def load_user_settings(self, fname=""):
 
 		if not self.settings["environment"]["user"]:
 			return
 
-		with open(os.path.join(self.environment_src, self.settings["environment"]["user"])) as settings_file:
+		fname = fname or os.path.join(self.environment_src, self.settings["environment"]["user"])
+		with open(fname) as settings_file:
 			self.user_settings = yaml.load(settings_file)
 
 		db = self.user_settings["database"].get("uri")
@@ -334,7 +335,6 @@ class Site(object):
 		views = views or self.views
 
 		for view in views:
-			# print(view["route"])
 			if not view["route"]:
 				view["full_route"] = ""
 			else:
@@ -381,10 +381,9 @@ class Site(object):
 			if view.get("subviews"):
 				self.set_view_parameter(view["subviews"], key, default_value, value=view[key])
 
-	def serve(self, host, port):
+	def serve(self, host, port, user_settings_file=""):
 		""" build the site and host it on a simple HTTP server """
-
-		self.build(self.environment_dist)
+		self.build(self.environment_dist, user_settings_file=user_settings_file)
 		handler = six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler
 		six.moves.socketserver.TCPServer.allow_reuse_address = True
 		httpd = six.moves.socketserver.TCPServer((host, port), handler)
@@ -400,11 +399,11 @@ class Site(object):
 			httpd.shutdown()
 			return
 
-	def build(self, out=""):
+	def build(self, out="", user_settings_file=""):
 
-		return self._build(out)
+		return self._build(out, user_settings_file=user_settings_file)
 
-	def _build(self, out="", views=None):
+	def _build(self, out="", views=None, user_settings_file=""):
 
 		out = out or self.environment_dist
 		if os.path.abspath(self.environment_src) in os.path.abspath(out):
@@ -421,6 +420,10 @@ class Site(object):
 				os.mkdir(out)
 		else:
 			os.mkdir(out)
+
+		if user_settings_file:
+			self.load_user_settings(user_settings_file)
+			self.load_db()
 
 		md = markdown.Markdown(
 			extensions = [MetaExtension()] + self.settings["pages"]["extensions"],
@@ -722,6 +725,5 @@ class Site(object):
 
 			for k in reversed(order):
 				copy.sort(key = (lambda item: item[k[0]]), reverse=(k[1]=="descending"))
-				# print(copy)
 
 		return copy

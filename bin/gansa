@@ -77,6 +77,10 @@ cli = CommandLineInterface()
 		"default": "distribute",
 		"help": "output directory name"
 	}),
+	(("-u", "--user"), {
+		"type": str,
+		"help": "name of user settings file (overrides settings.yaml)"
+	}),
 	(("-v", "--verbose"), {
 		"action": "store_true",
 		"default": False,
@@ -85,7 +89,7 @@ cli = CommandLineInterface()
 ])
 def build(**args):
 	site = gansa.Site(environment=".")
-	site.build(out=args["out"])
+	site.build(out=args["out"], user_settings_file=args["user"])
 
 @cli.register_command("init", [
 	(("-v", "--verbose"), {
@@ -109,6 +113,10 @@ def init(**args):
 		"default": 5000,
 		"help": "server port"
 	}),
+	(("-u", "--user"), {
+		"type": str,
+		"help": "name of user settings file (overrides settings.yaml)"
+	}),
 	(("-v", "--verbose"), {
 		"action": "store_true",
 		"default": False,
@@ -117,7 +125,7 @@ def init(**args):
 ])
 def serve(**args):
 	site = gansa.Site(environment=".", load=True)
-	site.serve(args["host"], args["port"])
+	site.serve(args["host"], args["port"], user_settings_file=args["user"])
 
 # @cli.register_command("", [])
 
